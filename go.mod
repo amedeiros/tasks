@@ -1,4 +1,4 @@
-module github.com/madflojo/tasks
+module github.com/amedeiros/tasks
 
 go 1.13
 

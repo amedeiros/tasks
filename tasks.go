@@ -84,9 +84,10 @@ package tasks
 import (
 	"context"
 	"fmt"
-	"github.com/rs/xid"
 	"sync"
 	"time"
+
+	"github.com/rs/xid"
 )
 
 // Task contains the scheduled task details and control mechanisms. This struct is used during the creation of tasks.
@@ -136,6 +137,8 @@ type Task struct {
 	// cancel is used to cancel tasks gracefully. This will not interrupt a task function that has already been
 	// triggered.
 	cancel context.CancelFunc
+
+	sync.Mutex
 }
 
 // Scheduler stores the internal task list and provides an interface for task management.
@@ -261,6 +264,8 @@ func (schd *Scheduler) Stop() {
 func (schd *Scheduler) scheduleTask(t *Task) {
 	select {
 	case <-time.After(time.Until(t.StartAfter)):
+		t.Lock()
+		defer t.Unlock()
 		t.timer = time.AfterFunc(t.Interval, func() { schd.execTask(t) })
 		return
 	case <-t.ctx.Done():
@@ -270,15 +275,17 @@ func (schd *Scheduler) scheduleTask(t *Task) {
 
 // execTask is the underlying scheduler, it is used to trigger and execute tasks.
 func (schd *Scheduler) execTask(t *Task) {
-	go func() {
-		err := t.TaskFunc()
-		if err != nil && t.ErrFunc != nil {
-			go t.ErrFunc(err)
-		}
-		if t.RunOnce {
-			defer schd.Del(t.id)
-		}
-	}()
+	t.Lock()
+	defer t.Unlock()
+
+	err := t.TaskFunc()
+	if err != nil && t.ErrFunc != nil {
+		go t.ErrFunc(err)
+	}
+	if t.RunOnce {
+		defer schd.Del(t.id)
+	}
+
 	if !t.RunOnce {
 		t.timer.Reset(t.Interval)
 	}
